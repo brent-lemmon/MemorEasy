@@ -219,7 +219,7 @@ Distributed under the AGPL-3.0 license. See `LICENSE.txt` for more information.
 <!-- CONTACT -->
 ## Contact
 
-Bransoned - [Discord](https://discord.com/users/b.ranson)
+bransoned - [Discord](https://discord.com/users/b.ranson)
 
 Project Link: [https://github.com/bransoned/MemorEasy](https://github.com/bransoned/MemorEasy)
 
@@ -230,7 +230,7 @@ Project Link: [https://github.com/bransoned/MemorEasy](https://github.com/branso
 <!-- ACKNOWLEDGMENTS -->
 ## Acknowledgments
 
-* [] This is a personal project intended for my use-cases. I feel that others may be able to benefit from this tool, so I would like to share it along with the development process with others.
+* This is a personal project intended for my use-cases. I feel that others may be able to benefit from this tool, so I would like to share it along with the development process with others.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
