@@ -23,7 +23,6 @@
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![project_license][license-shield]][license-url]
-[![LinkedIn][linkedin-shield]][linkedin-url]
 
 
 
@@ -31,10 +30,10 @@
 <br />
 <div align="center">
   <a href="https://github.com/bransoned/Memory-Exporter">
-    <img src="images/memory_exporter_logo.jpg" alt="Logo" width="128" height="128">
+    <img src="images/memoreasy_logo.jpg" alt="Logo" width="128" height="128">
   </a>
 
-<h3 align="center">Memory Exporter</h3>
+<h3 align="center">MemorEasy</h3>
 
   <p align="center">
     Python tool used to download Snapchat memory exports. This script allows you to extract and apply date, time, and location data to Snapchat memory exports EXIF data.
@@ -87,7 +86,7 @@
 
 This project is intended to provide a simplified and better implemented approach for exporting Snapchat memories compared to the system provided by Snapchat and their Javascript implementation.
 
-When using Memory Exporter, you can rapidly download your Memories, while also tagging them with their relevant EXIF data, which Snapchat does not provide. Likewise, the script also saves files with relevant date/time file names instead of SID values.
+When using MemorEasy, you can rapidly download your Memories, while also tagging them with their relevant EXIF data, which Snapchat does not provide. Likewise, the script also saves files with relevant date/time file names instead of SID values.
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
@@ -111,7 +110,7 @@ TODO Add built with images
 <!-- GETTING STARTED -->
 ## Getting Started
 
-Below are steps needed to retrieve your Memories_history.html file from Snapchat and then how to install and use this file with Memory Exporter.
+Below are steps needed to retrieve your Memories_history.html file from Snapchat and then how to install and use this file with MemorEasy.
 
 ### Prerequisites
 
@@ -250,7 +249,6 @@ Project Link: [https://github.com/bransoned/Memory-Exporter](https://github.com/
 [license-shield]: https://img.shields.io/github/license/bransoned/Memory-Exporter.svg?style=for-the-badge
 [license-url]: https://github.com/bransoned/Memory-Exporter/blob/master/LICENSE.txt
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
-[linkedin-url]: https://linkedin.com/in/linkedin_username
 [product-screenshot]: images/screenshot.png
 
 
