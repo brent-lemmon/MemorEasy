@@ -169,7 +169,7 @@ _For more examples, please refer to the [Documentation](https://example.com)_
 <!-- ROADMAP -->
 ## Roadmap
 
-- [ ] Edit EXIF data for JPGs and MP4 files.
+- [X] Edit EXIF data for JPGs and MP4 files.
 - [ ] Edit EXIF data for JPGs or MP4s that are downloaded in a ZIP file.
 - [ ] Remove ZIP files and combine their PNG layers with the parent PNG or MP4. Add relevant EXIF data when needed.
 - [ ] Provide a GUI interface for ease of use by non-power users.
