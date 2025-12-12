@@ -11,6 +11,7 @@ import time
 import sys
 import shutil
 
+import subprocess
 import exiftool
 
 """
@@ -190,35 +191,32 @@ def mp4_exif_write(mp4_path, date_time_str, lat, lon):
     lat_ref = "N" if float(lat) >= 0 else "S"
     lon_ref = "E" if float(lon) >= 0 else "W"
 
-    tags = {
-        # Date/time tags
-        "QuickTime:CreateDate": date_time_str,
-        "QuickTime:ModifyDate": date_time_str,
-        "QuickTime:MediaCreateDate": date_time_str,
-        "QuickTime:MediaModifyDate": date_time_str,
-        "QuickTime:TrackCreateDate": date_time_str,
-        "QuickTime:TrackModifyDate": date_time_str,
+    # Build exiftool args
+    cmd = [
+        "exiftool",
+        f"-CreateDate={date_time_str}",
+        f"-ModifyDate={date_time_str}",
+        f"-TrackCreateDate={date_time_str}",
+        f"-TrackModifyDate={date_time_str}",
+        f"-MediaCreateDate={date_time_str}",
+        f"-MediaModifyDate={date_time_str}",
+        f"-GPSLatitude={abs(float(lat))}",
+        f"-GPSLatitudeRef={lat_ref}",
+        f"-GPSLongitude={abs(float(lon))}",
+        f"-GPSLongitudeRef={lon_ref}",
+        "-overwrite_original",
+        mp4_path
+    ]
 
-        # GPS tags (MP4 uses decimal degrees)
-        "GPSLatitude":  lat,
-        "GPSLongitude": lon,
-        "GPSLatitudeRef": lat_ref,
-        "GPSLongitudeRef": lon_ref,
-    }
+    # run exiftool program to update exif tags on mp4 files
+    result = subprocess.run(cmd, capture_output=True, text=True)
 
-    exiftool_binary = find_exiftool()
-
-    with exiftool.ExifTool(executable=exiftool_binary) as et:
-        args = []
-        for key, value in tags.items():
-            args.append(f"-{key}={value}")
-
-        args.append("-overwrite_original")
-        args.append(str(mp4_path))
-
-        et.execute(*args)
+    if result.returncode != 0:
+        print(f"Exiftool error for {mp4_path}: {result.stderr}")
 
     set_file_timestamp(mp4_path, date_time_str[:-4])
+
+
 
 # =========================================================================== #
 
