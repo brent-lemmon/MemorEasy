@@ -31,7 +31,7 @@ Also, need to clean up, compartmentalize, and space out this code into functions
 def find_exiftool():
 
     if getattr(sys, 'frozen', False):
-        base = Path(sys.MEIPASS)
+        base = Path(sys._MEIPASS)
     else:
         base = Path(__file__).parent
 
