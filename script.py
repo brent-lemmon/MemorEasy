@@ -28,33 +28,24 @@ Also, need to clean up, compartmentalize, and space out this code into functions
 
 # =========================================================================== #
 
-# If running as PyInstaller bundle
+# Return name/path of exiftool, bundled or system-wide
 def find_exiftool():
 
-    if getattr(sys, 'frozen', False):
+    exe_name = "exiftool.exe" if sys.platform.startswith("win") else "exiftool"
+
+    # If bundle
+    if getattr(sys, "frozen", False):
         base = Path(sys._MEIPASS)
-    else:
-        base = Path(__file__).parent
+        bundled = base / "bin" / exe_name
+        if bundled.exists():
+            return str(bundled)
 
-    # Look for exiftool.exe locally
-    exe = "exiftool.exe" if sys.platform.startswith("win") else "exiftool"
-
-    # Check bundled exe in ./bin directory
-    bundled = base / "bin" / exe
-    if bundled.exists():
-        return str(bundled)
-
-    system_path = shutil.which(exe)
+    # Try system PATH
+    system_path = shutil.which(exe_name)
     if system_path:
         return system_path
 
-    # 3. Nothing found
-    raise FileNotFoundError(
-        f"ExifTool not found.\n"
-        f"Tried bundled: {bundled}\n"
-        f"Tried system PATH: '{exe}'"
-    )
-
+    raise FileNotFoundError(f"Could not find exiftool. Tried bundled and system PATH.")
 # =========================================================================== #
 
 # Logic to parse user-provided html file for user-specific image info
@@ -191,9 +182,11 @@ def mp4_exif_write(mp4_path, date_time_str, lat, lon):
     lat_ref = "N" if float(lat) >= 0 else "S"
     lon_ref = "E" if float(lon) >= 0 else "W"
 
+    exiftool_path = find_exiftool()
+
     # Build exiftool args
     cmd = [
-        "exiftool",
+        exiftool_path,
         f"-CreateDate={date_time_str}",
         f"-ModifyDate={date_time_str}",
         f"-TrackCreateDate={date_time_str}",
@@ -205,7 +198,7 @@ def mp4_exif_write(mp4_path, date_time_str, lat, lon):
         f"-GPSLongitude={abs(float(lon))}",
         f"-GPSLongitudeRef={lon_ref}",
         "-overwrite_original",
-        mp4_path
+        str(mp4_path)
     ]
 
     # run exiftool program to update exif tags on mp4 files
