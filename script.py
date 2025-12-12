@@ -46,6 +46,7 @@ def find_exiftool():
         return system_path
 
     raise FileNotFoundError(f"Could not find exiftool. Tried bundled and system PATH.")
+
 # =========================================================================== #
 
 # Logic to parse user-provided html file for user-specific image info
@@ -178,10 +179,6 @@ def mp4_exif_write(mp4_path, date_time_str, lat, lon):
     lon = -77.34570
     """
 
-    # GPS
-    lat_ref = "N" if float(lat) >= 0 else "S"
-    lon_ref = "E" if float(lon) >= 0 else "W"
-
     exiftool_path = find_exiftool()
 
     # Build exiftool args
@@ -193,10 +190,10 @@ def mp4_exif_write(mp4_path, date_time_str, lat, lon):
         f"-TrackModifyDate={date_time_str}",
         f"-MediaCreateDate={date_time_str}",
         f"-MediaModifyDate={date_time_str}",
-        f"-GPSLatitude={abs(float(lat))}",
-        f"-GPSLatitudeRef={lat_ref}",
-        f"-GPSLongitude={abs(float(lon))}",
-        f"-GPSLongitudeRef={lon_ref}",
+        f"-XMP:GPSLatitude={lat}",
+        f"-XMP:GPSLongitude={lon}",
+        f"-Keys:GPSCoordinates={lat} {lon}",  # Also set QuickTime keys
+
         "-overwrite_original",
         str(mp4_path)
     ]
