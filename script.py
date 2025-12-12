@@ -241,7 +241,7 @@ def memory_download(memories):
                 extract_zip(filepath, name)
                 # add functionality to read through existing dirs and then modify md here
 
-            else ext != ".zip":
+            else:
                 write_exif(filepath, line["date"], line["lat"], line["lon"], ext)
 
     print() # final print to flush buffer and have newline
