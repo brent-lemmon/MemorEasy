@@ -67,11 +67,42 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg exiftool
 
+      - name: Collect ffmpeg & exiftool (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkidr -p bin
+          FFMPEG_PATH=$(which ffmpeg)
+          EXIFTOOL_PATH=$(which exiftool)
+      
+          echo "ffmpeg: $FFMPEG_PATH"
+          echo "exiftool: $EXIFTOOL_PATH"
+      
+          cp "$FFMPEG_PATH" bin/ffmpeg
+          cp "$EXIFTOOL_PATH" bin/exiftool
+      
+          chmod +x bin/ffmpeg bin/exiftool
+          
       - name: Install system deps (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install ffmpeg exiftool
-
+  
+      - name: Collect ffmpeg & exiftool (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p bin
+          FFMPEG_PATH=$(which ffmpeg)
+          EXIFTOOL_PATH=$(which exiftool)
+      
+          echo "ffmpeg: $FFMPEG_PATH"
+          echo "exiftool: $EXIFTOOL_PATH"
+      
+          cp "$FFMPEG_PATH" bin/ffmpeg
+          cp "$EXIFTOOL_PATH" bin/exiftool
+      
+          chmod +x bin/ffmpeg bin/exiftool
+          
       - name: Download ExifTool (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -110,19 +141,23 @@ jobs:
       - name: Build binary
         shell: bash
         run: |
-          PYI_ARGS="--onefile \
+          COMMON_ARGS="--onefile \
             --copy-metadata imageio \
             --copy-metadata imageio-ffmpeg \
             --copy-metadata moviepy"
 
             if [[ "$RUNNER_OS" == "Windows" ]]; then
-              PYI_ARGS="$PYI_ARGS \
+              BIN_ARGS="\
                 --add-binary bin/exiftool.exe;bin \
                 --add-binary bin/ffmpeg.exe;bin \
                 --add-data bin/exiftool_files;bin/exiftool_files"
+            else
+              BIN_ARGS="\
+                --add-binary bin/ffmpeg:bin \
+                --add-binary bin/exiftool:bin"
             fi
 
-            pyinstaller $PYI_ARGS script.py
+            pyinstaller $COMMON_ARGS $BIN_ARGS script.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
