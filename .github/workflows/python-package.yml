@@ -92,8 +92,16 @@ jobs:
         
     - name: Build with PyInstaller
       run: |
-        python -m PyInstaller --onefile --add-binary "bin/exiftool.exe;bin" --add-binary "bin/ffmpeg.exe;bin" --add-data "bin/exiftool_files;bin/exiftool_files" script.py
-   
+#        python -m PyInstaller --onefile --add-binary "bin/exiftool.exe;bin" --add-binary "bin/ffmpeg.exe;bin" --add-data "bin/exiftool_files;bin/exiftool_files" script.py
+         python -m PyInstaller --onefile `
+        --add-binary "bin/exiftool.exe;bin" `
+        --add-binary "bin/ffmpeg.exe;bin" `
+        --add-data "bin/exiftool_files;bin/exiftool_files" `
+        --copy-metadata imageio `
+        --copy-metadata imageio-ffmpeg `
+        --copy-metadata moviepy `
+        script.py
+        
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
