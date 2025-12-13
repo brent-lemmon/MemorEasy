@@ -110,11 +110,10 @@ jobs:
       - name: Build binary
         shell: bash
         run: |
-          PYI_ARGS="\
-            --onefile \
+          PYI_ARGS="--onefile \
             --copy-metadata imageio \
             --copy-metadata imageio-ffmpeg \
-            --copy-metadata moviepy \
+            --copy-metadata moviepy"
 
             if [[ "$RUNNER_OS" == "Windows" ]]; then
               PYI_ARGS="$PYI_ARGS \
