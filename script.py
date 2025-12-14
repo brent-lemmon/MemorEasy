@@ -13,8 +13,70 @@ import os
 
 # =========================================================================== #
 
-# Return name/path of exiftool, bundled or system-wide
-def find_exiftool():
+class MemorEasyError(Exception):
+    """Base exception for MemorEasy errors"""
+    pass
+class InvalidInputFileError(MemorEasyError):
+    """Raised when memories_history.html is missing or invalid"""
+    pass
+class DependencyError(MemorEasyError):
+    """Raised when required tools (exiftool, ffmpeg) are missing"""
+    pass
+class ParseError(MemorEasyError):
+    """ Raised when HTML parsing fails """
+    pass
+class DownloadError(MemorEasyError):
+    """Raised when Memory download fails"""
+    pass
+class NetworkError(MemorEasyError):
+    """Raised when network connection fails"""
+    pass
+
+# =========================================================================== #
+
+"""
+Validate that the memories_history.html file exists and is valid
+
+Args:
+    file_path: Path to memories_history.html
+
+Returns:
+    Path object if valid
+
+Raises:
+    InvalidInputFileError: If file doesn't exist or is invalid
+"""
+def validate_input_file(file_path: str) -> Path:
+
+    path = Path(file_path)
+
+    # Check that file is present in directory
+    if not path.exists():
+        raise InvalidInputFileError(
+            f"File not found: {file_path}\n"
+            f"Please provide the memories_history.html file from Snapchat."
+        )
+
+    # Check that file is not a directory or empty
+    if not path.is_file():
+        raise InvalidInputFileError(f"{file_path} is not a file.")
+    if path.stat().st_size == 0:
+        raise InvalidInputFileError(f"{file_path} is empty.")
+
+    return path
+
+# =========================================================================== #
+
+"""
+Find exiftool executable
+
+Returns:
+    Path to exiftool
+
+Raises:
+    DependencyError: If exiftool cannot be found
+"""
+def find_exiftool() -> str:
 
     exe_name = "exiftool.exe" if sys.platform.startswith("win") else "exiftool"
 
@@ -30,12 +92,23 @@ def find_exiftool():
     if system_path:
         return system_path
 
-    raise FileNotFoundError(f"Could not find exiftool. Tried bundled and system PATH.")
+    raise DependencyError(
+        f"Exiftool not found. Please install exiftool or use the provided bundled executable."
+        f"For further installation instructions, reference the README."
+    )
 
 # =========================================================================== #
 
-# Return name/path of ffmpeg, bundled or system-wide
-def find_ffmpeg():
+"""
+Find ffmpeg executable.
+
+Returns:
+    Path to ffmpeg
+
+Raises:
+    DependencyError: If ffmpeg cannot be found
+"""
+def find_ffmpeg() -> str:
 
     exe_name = "ffmpeg.exe" if sys.platform.startswith("win") else "ffmpeg"
 
@@ -51,69 +124,165 @@ def find_ffmpeg():
     if system_path:
         return system_path
 
-    raise FileNotFoundError(f"Could not find ffmpeg. Tried bundled and system PATH.")
-
+    raise DependencyError(
+        f"FFMpeg not found. Please install ffmpeg or use the provided bundled executable."
+        f"For further installation instructions, reference the README."
+    )
 
 # =========================================================================== #
 
-# Logic to parse user-provided html file for user-specific image info
-def parse_html():
+"""
+Parse user-provided HTML file for user-specific image info
+
+Returns:
+    html_text: Raw HTML content from memories_history.html
+Raises:
+    InvalidInputFileError: If HTML structure does not match expected pattern
+"""
+def parse_html() -> str:
     target_string = "<div id='mem-info-bar'"
-    with open("memories_history.html", "r", encoding="utf-8") as file:
+
+    valid_user_file = validate_input_file("./memories_history.html")
+
+    # Read through user file to find relevant image/video data and API links
+    html_text = None
+    with open(valid_user_file, "r", encoding="utf-8") as file:
         for line in file:
             if target_string in line:
                 html_text = line
+                break
+
+    # Check that our user info was found, otherwise raise exception
+    if html_text is None:
+        raise InvalidInputFileError(
+            f"{valid_user_file} does not appear to be a Snapchat-provided HTML file."
+            f"Missing expected '<div id='mem-info-bar'>' section."
+            f"Please reference the README on prerequisites to run this script."
+        )
+
     return html_text
 
 # =========================================================================== #
 
-def parse_snapchat_memories(html_text):
-    soup = BeautifulSoup(html_text, "html.parser")
-    rows = soup.find_all("tr")[1:]  # skip header row
+"""
+Parse Snapchat file data and organize relevant metadata + download URLs
 
+Args:
+    html_text: Raw HTML content from memories_history.html that contains
+               user specific image data
+Returns:
+    List of Memory dictionaries with keys: date, type, lat, lon, url
+Raises:
+    ParseError: If HTML structure is invalid or unexpected
+"""
+def parse_snapchat_memories(html_text) -> list[dict[str, str, str, str, str]]:
+
+    try:
+        soup = BeautifulSoup(html_text, "html.parser")
+    except Exception as e:
+        raise ParseError(f"Failed to parse HTML: {e}")
+
+    table = soup.find("table")
+    if not table:
+        raise ParseError(
+            "No table found in HTML. The memories_history.html file may be corrupted or incorrect."
+        )
+
+    rows = soup.find_all("tr")
+    if len(rows) < 2:
+        raise ParseError(
+            "Table has no data rows. The relevant section of memories_history.html file appears to be empty."
+        )
+
+    # Skip header row
+    data_rows = rows[1:]
     memories = []
+    skipped_count = 0
 
-    for row in rows:
+    for row in data_rows:
+
         cells = row.find_all("td")
+
+        # Must have 4 columns: Date, Type, Location, URL
         if len(cells) < 4:
+            skipped_count += 1
             continue
 
-        # Extract basic text fields
-        date_str = cells[0].get_text(strip=True)
-        media_type = cells[1].get_text(strip=True)
+        try:
+            # Extract basic text fields
+            date_str = cells[0].get_text(strip=True)
+            media_type = cells[1].get_text(strip=True)
 
-        # Extract location
-        loc_text = cells[2].get_text(strip=True)
-        lat, lon = None, None
-        if "Latitude" in loc_text:
-            match = re.search(r"([-0-9.]+),\s*([-0-9.]+)", loc_text)
-            if match:
-                lat, lon = match.groups()
+            if not date_str or not media_type:
+                skipped_count += 1
+                continue
 
-        # Extract URL from onclick attribute
-        link_tag = cells[3].find("a")
-        link = None
+            # Extract location
+            loc_text = cells[2].get_text(strip=True)
+            lat, lon = None, None
+            if "Latitude" in loc_text:
 
-        if link_tag and "onclick" in link_tag.attrs:
-            onclick = link_tag["onclick"]
-            # Extract the URL inside downloadMemories('URL', ...)
-            match = re.search(r"downloadMemories\('([^']+)'", onclick)
-            if match:
-                link = match.group(1)
+                # Format: "Latitude, Longitude: 30.445803, -84.31457"
+                match = re.search(r"([-0-9.]+),\s*([-0-9.]+)", loc_text)
 
-        memories.append({
-            "date": date_str,
-            "type": media_type,
-            "lat": lat,
-            "lon": lon,
-            "url": link
-        })
+                if match:
+                    lat, lon = match.groups()
 
+                # Validate coords are in valid ranges
+                try:
+                    lat_f, lon_f = float(lat), float(lon)
+                    if not (-90 <= lat_f <= 90 and -180 <= lon_f <= 180):
+                        lat, lon = None, None
+
+                except (ValueError, TypeError) as e:
+                    lat, lon = None, None
+                    skipped_count += 1
+                    continue
+
+            # Extract URL from onclick attribute
+            link_tag = cells[3].find("a")
+            link = None
+
+            if link_tag and "onclick" in link_tag.attrs:
+
+                onclick = link_tag["onclick"]
+
+                # Format: downloadMemories('URL', this, true)
+                match = re.search(r"downloadMemories\('([^']+)'", onclick)
+                if match:
+                    link = match.group(1)
+
+            if not link:
+                skipped_count += 1
+                continue
+
+            memories.append({
+                "date": date_str,
+                "type": media_type,
+                "lat": lat,
+                "lon": lon,
+                "url": link
+            })
+
+        # Skip any malformed rows that throw error
+        except Exception as e:
+            skipped_count += 1
+            continue
+
+    if not memories:
+        raise ParseError(
+            "No valid Memories found. The relevant contents in the file may be empty or in unexpected format."
+        )
+
+    if skipped_count > 0:
+        print(f"Skipped {skipped_count} invalid row(s)")
+
+    print(f"Found {len(memories)} valid memories")
     return memories
 
 # =========================================================================== #
 
-def set_file_timestamp(path, date_time_str):
+def set_file_timestamp(path, date_time_str) -> None:
     # Change modified times to original capture date
 
     # date_time_str = "YYYY:MM:DD HH:MM:SS"
@@ -125,7 +294,7 @@ def set_file_timestamp(path, date_time_str):
 
 # =========================================================================== #
 
-def write_exif(file_path, date_time_str, lat, lon, ext):
+def write_exif(file_path, date_time_str, lat, lon, ext) -> None:
     """
     date_time_str = "2025:12:02 18:12:04"
     lat = 40.444803
@@ -178,7 +347,7 @@ def write_exif(file_path, date_time_str, lat, lon, ext):
 # =========================================================================== #
 
 # Overlay PNG layer onto JPG image
-def merge_jpg_with_overlay(jpg_path, png_path):
+def merge_jpg_with_overlay(jpg_path, png_path) -> str:
 
     # Open images
     base_jpg = Image.open(jpg_path)
@@ -208,8 +377,7 @@ def merge_jpg_with_overlay(jpg_path, png_path):
 # =========================================================================== #
 
 #Overlay PNG layer onto MP4 video
-def merge_mp4_with_overlay(mp4_path, png_path):
-#    print(mp4_path, png_path)
+def merge_mp4_with_overlay(mp4_path, png_path) -> str:
 
     ffmpeg_path = find_ffmpeg()
 
@@ -256,7 +424,7 @@ def merge_mp4_with_overlay(mp4_path, png_path):
 # =========================================================================== #
 
 # Extract files from a zip folder and place them into a new folder matching file naming convention
-def handle_zip(filepath, name, line):
+def handle_zip(filepath, name, line) -> None:
 
     # Where our extracted images will reside
     new_folder = f"./memories/{name}"
@@ -311,66 +479,170 @@ def handle_zip(filepath, name, line):
 
 # =========================================================================== #
 
-def memory_download(memories):
+"""
+Download Memories that are provided in list of dictionaries. Call subfunctions
+to handle metadata writing.
+
+Args:
+    memories: List of Memory dictionaries with keys: date, type, lat, lon, url
+
+Raises:
+    DownloadError: If download fails
+    NetworkError: If network connection fails
+"""
+def memory_download(memories: list[dict[str, str, str, str, str]]) -> None:
 
     total_files = len(memories)
-    download_count = 1
-
-    if total_files <= 0:
-        print("No memories found.")
+    if not memories or total_files <= 0:
+        print("No memories to download.")
         return
 
+    print(f"\nStarting download of {total_files} memories...\n")
+
+    # Create output directory
+    out_dir = Path("./memories")
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise DownloadError(f"Failed to create output directory: {e}")
+
+    download_count = 0
+    failed_downloads = []
+
     # Logic to begin downloading begins here
-    for line in memories:
+    for idx, memory in enumerate(memories):
 
-        url = line["url"]
-        name = line["date"]
+        url = memory["url"]
+        date_str = memory["date"]
+        lat = memory["lat"]
+        lon = memory["lon"]
 
-        name = name.replace(" ", "-")[:-4]
-        name = name.replace(":", "")
+        if not url:
+            print(f"\nMemory {idx}: No download URL, skipping")
+            failed_downloads.append((idx, "No URL"))
+            continue
 
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
+        if not date_str:
+            print(f"\nMemory {idx}: No date, skipping")
+            failed_downloads.append((idx, "No date"))
+            continue
+        try:
+            # Format: "2025-12-09 11:10:51 UTC" -> "2025-12-09-111051"
+            name = date_str.replace(" ", "-")[:-4]
+            name = name.replace(":", "")
+        except Exception as e:
+            print(f"\nMemory {idx}: Invalid date format '{date_str}', skipping")
+            failed_downloads.append((idx, f"Invalid date: {e}"))
+            continue
 
-            content_type = r.headers.get("Content-Type", "").lower()
+        # Implement retries if a download fails
+        max_retries = 3
+        retry_delay = 2 # seconds
 
-            if "jpg" in content_type:
-                ext = ".jpg"
-            elif "png" in content_type:
-                ext = ".png"
-            elif "mp4" in content_type:
-                ext = ".mp4"
-            elif "zip" in content_type:
-                ext = ".zip"
-            else:
-                ext = ""  # fallback
+        for attempt in range(0, max_retries):
+            try:
+                print(f"\rDownloading {idx + 1}/{total_files}: {name}...", end="", flush=True)
 
-            out_dir = Path("./memories") # TODO give option for user-defined path in future
-            out_dir.mkdir(parents=True, exist_ok=True)
+                with requests.get(url, stream=True, timeout=30) as r:
+                    r.raise_for_status() # Raise exception for 4xx/5xx status codes
 
-            filepath = out_dir / f"{name}{ext}"
+                    # Determine file extension from Content-Type header
+                    content_type = r.headers.get("Content-Type", "").lower()
+                    if "jpg" in content_type:
+                        ext = ".jpg"
+                    elif "png" in content_type:
+                        ext = ".png"
+                    elif "mp4" in content_type:
+                        ext = ".mp4"
+                    elif "zip" in content_type:
+                        ext = ".zip"
+                    else:
+                        print(f"Memory {idx}: Unknown file type '{content_type}', skipping\n")
+                        failed_downloads.append((idx, f"Unknown type: {content_type}"))
+                        break
 
-            print(f"\rDownloading {download_count}/{total_files}...", end="", flush=True)
+                    filepath = out_dir / f"{name}{ext}"
+                    filepath_no_ext = out_dir / name
 
-            with open(filepath, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192): # 8 KB chunks
-                    if chunk: # filter out keep-alive new chunks
-                        f.write(chunk)
-            download_count += 1
+                    if filepath.exists() or filepath_no_ext.exists():
+                        print(f"\nMemory {idx}: File already exists, skipping\n")
+                        download_count += 1
+                        break
 
-            # Handle file operations for memories provided in zip folders
-            if ext == ".zip":
-                handle_zip(filepath, name, line)
+                    try:
+                        with open(filepath, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=8192): # 8 KB chunks
+                                if chunk: # filter out keep-alive new chunks
+                                    f.write(chunk)
+                    except OSError as e:
+                        raise DownloadError(f"Failed to write file: {e}")
 
-            # Normal JPG or MP4 provided to us
-            else:
-                write_exif(filepath, line["date"], line["lat"], line["lon"], ext)
+                    if not filepath.exists() or filepath.stat().st_size == 0:
+                        raise DownloadError(f"Downloaded file is empty or missing\n")
 
-    print() # final print to flush buffer and have newline
+
+                # Process the downloaded file
+                try:
+                    if ext == ".zip":
+                        handle_zip(filepath, name, memory)
+                    else:
+                        write_exif(filepath, date_str, lat, lon, ext)
+
+                except Exception as e:
+                    print(f"\nMemory {idx}: Post-processing failed: {e}\n")
+
+                # successful download and processing, move onto next file
+                download_count += 1
+                break
+
+            except requests.exceptions.Timeout:
+                if attempt < max_retries:
+                    print(f"\nMemory {idx}: Timeout, retrying ({attempt}/{max_retries})...\n")
+                    time.sleep(retry_delay)
+                else:
+                    print(f"\nMemory {idx}: Timeout after {max_retries} attempts, skipping\n")
+                    failed_downloads.append((idx, "Timeout"))
+
+            except requests.exceptions.ConnectionError:
+                if attempt < max_retries:
+                    print(f"\nMemory {idx}: Connection error, retrying ({attempt}/{max_retries})...\n")
+                    time.sleep(retry_delay)
+                else:
+                    print(f"\nMemory {idx}: Connection failed after {max_retries} attempts, skipping\n")
+                    failed_downloads.append((idx, "Connection error"))
+
+            except requests.exceptions.HTTPError as e:
+                # Don't retry on 404, 403, etc.
+                print(f"\nMemory {idx}: HTTP error {e.response.status_code}, skipping\n")
+                failed_downloads.append((idx, f"HTTP {e.response.status_code}"))
+                break
+
+            except requests.exceptions.RequestException as e:
+                print(f"\nMemory {idx}: Download failed: {e}, skipping\n")
+                failed_downloads.append((idx, str(e)))
+                break
+
+            except Exception as e:
+                print(f"\nMemory {idx}: Unexpected error: {e}, skipping\n")
+                failed_downloads.append((idx, str(e)))
+                break
+
+    # Final summary
+    print(f"\n\n{'='*50}")
+    print(f"Successfully downloaded: {download_count}/{total_files}")
+
+    if failed_downloads:
+        print(f"Failed downloads: {len(failed_downloads)}")
+        print("\nFailed items:")
+        for idx, reason in failed_downloads:
+            print(f"  - Memory {idx}: {reason}")
+    else:
+        print("All memories downloaded successfully!")
+    print(f"{'='*50}\n")
 
 # =========================================================================== #
 
-if __name__ == "__main__":
+def main():
 
     print(r"""
 ███╗   ███╗███████╗███╗   ███╗ ██████╗ ██████╗ ███████╗ █████╗ ███████╗██╗   ██╗
@@ -381,8 +653,24 @@ if __name__ == "__main__":
 ╚═╝     ╚═╝╚══════╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚══════╝   ╚═╝
     """)
 
-    html_text = parse_html()
+    try:
+        html_text = parse_html()
+        memories = parse_snapchat_memories(html_text)
+        memory_download(memories)
 
-    memories = parse_snapchat_memories(html_text)
+    except InvalidInputFileError as e:
+        print(f"\nInvalid file: {e}")
+        sys.exit(1)
+    except ParseError as e:
+        print(f"\nParse error: {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n\nDownload cancelled by user")
+        sys.exit(130)
+    except Exception as e:
+        print(f"\nUnexpected error: {e}")
+        sys.exit(1)
 
-    memory_download(memories)
+if __name__ == "__main__":
+
+    main()
