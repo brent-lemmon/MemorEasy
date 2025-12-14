@@ -282,16 +282,51 @@ def parse_snapchat_memories(html_text) -> list[dict[str, str, str, str, str]]:
 
 # =========================================================================== #
 
-def set_file_timestamp(path, date_time_str) -> None:
-    # Change modified times to original capture date
+"""
+Change the "modified date" in EXIF section to "created date" value
 
-    # date_time_str = "YYYY:MM:DD HH:MM:SS"
-    dt = datetime.strptime(date_time_str, "%Y-%m-%d %H:%M:%S")
-    ts = dt.timestamp()
+Args:
+    path: File path of the file/directory to be edited
+    date_time_str: Date to be written to file in format "YYYY-MM-DD HH:MM:SS" in UTC
+
+Raises:
+    FileNotFoundError: If path doesn't exist
+    ValueError: If date_time_str format is invalid
+    OSError: If timestamp cannot be set (permissions, etc)
+"""
+def set_file_timestamp(path, date_time_str) -> None:
+
+    if isinstance(path, str):
+        path = Path(path)
+
+    if not path.exists():
+        raise FileNotFoundError(f"Path does not exist: {path}")
+
+    # Validate and parse date string
+    try:
+        dt = datetime.strptime(date_time_str, "%Y-%m-%d %H:%M:%S")
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid date format '{date_time_str}'."
+            f"Expected 'YYYY-MM-DD HH:MM:SS'. Error: {e}"
+        )
+
+    # Convert to timestamp
+    try:
+        ts = dt.timestamp()
+    except (ValueError, OSErrror) as e:
+        raise ValueError(f"Cannot convert date to timestamp: {e}")
+
+
 
     # Set access and modified times
-    os.utime(path, (ts, ts))
-
+    try:
+        os.utime(path, (ts, ts))
+    except OSError as e:
+        raise OSError(
+            f"Failed to set timestamp on {path}: {e}."
+            f"This may be due to file permissions or filesystem limitations."
+        )
 # =========================================================================== #
 
 def write_exif(file_path, date_time_str, lat, lon, ext) -> None:
