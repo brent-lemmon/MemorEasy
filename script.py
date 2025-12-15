@@ -1,9 +1,10 @@
-from moviepy import VideoFileClip, ImageClip, CompositeVideoClip
+from moviepy import VideoFileClip
 from bs4 import BeautifulSoup
 from datetime import datetime
 from pathlib import Path
 from PIL import Image
 import subprocess
+import traceback
 import requests
 import shutil
 import time
@@ -102,8 +103,8 @@ def find_exiftool() -> str:
         return system_path
 
     raise DependencyError(
-        f"Exiftool not found. Please install exiftool or use the provided bundled executable."
-        f"For further installation instructions, reference the README."
+        "Exiftool not found. Please install exiftool or use the provided bundled executable."
+        "For further installation instructions, reference the README."
     )
 
 # =========================================================================== #
@@ -134,8 +135,8 @@ def find_ffmpeg() -> str:
         return system_path
 
     raise DependencyError(
-        f"FFMpeg not found. Please install ffmpeg or use the provided bundled executable."
-        f"For further installation instructions, reference the README."
+        "FFMpeg not found. Please install ffmpeg or use the provided bundled executable."
+        "For further installation instructions, reference the README."
     )
 
 # =========================================================================== #
@@ -243,7 +244,7 @@ def parse_snapchat_memories(html_text) -> list[dict[str, str, str, str, str]]:
                     if not (-90 <= lat_f <= 90 and -180 <= lon_f <= 180):
                         lat, lon = None, None
 
-                except (ValueError, TypeError) as e:
+                except (ValueError, TypeError):
                     lat, lon = None, None
                     skipped_count += 1
                     continue
@@ -274,7 +275,7 @@ def parse_snapchat_memories(html_text) -> list[dict[str, str, str, str, str]]:
             })
 
         # Skip any malformed rows that throw error
-        except Exception as e:
+        except Exception:
             skipped_count += 1
             continue
 
@@ -323,7 +324,7 @@ def set_file_timestamp(path, date_time_str) -> None:
     # Convert to timestamp
     try:
         ts = dt.timestamp()
-    except (ValueError, OSErrror) as e:
+    except (ValueError, OSError) as e:
         raise ValueError(f"Cannot convert date to timestamp: {e}")
 
 
@@ -491,7 +492,7 @@ def merge_jpg_with_overlay(jpg_path: Path, png_path: Path) -> Path:
         try:
             overlay = Image.open(png_path)
         except Exception as e:
-            raise ImageProcessingError(f"Failed to open PNG {PNG_path.name}: {e}")
+            raise ImageProcessingError(f"Failed to open PNG {png_path.name}: {e}")
 
         # Validate images loaded properly
         if base_jpg.size[0] == 0 or base_jpg.size[1] == 0:
@@ -625,11 +626,9 @@ def merge_mp4_with_overlay(mp4_path: Path, png_path: Path) -> Path:
 
     video = None
     overlay = None
-    resized_png_path = None
 
     try:
         # Get MP4 dimensions using moviepy
-
         try:
             video = VideoFileClip(mp4_path)
             video_width, video_height = video.size
@@ -645,7 +644,6 @@ def merge_mp4_with_overlay(mp4_path: Path, png_path: Path) -> Path:
                 except Exception:
                     pass
 
-
         # Resize png file to mp4 dimensions
         try:
             overlay = Image.open(png_path)
@@ -653,7 +651,7 @@ def merge_mp4_with_overlay(mp4_path: Path, png_path: Path) -> Path:
             overlay.save(png_path, "PNG")
         except Exception as e:
             raise VideoProcessingError(
-                f"Failed to resize PNG overlay from {original_size} to "
+                "Failed to resize PNG overlay to "
                 f"{video_width}x{video_height}: {e}"
             )
         finally:
@@ -746,7 +744,7 @@ def handle_zip(filepath: Path, name: str, memory: dict[str, str, str, str, str])
         try:
             shutil.rmtree(new_folder)
         except Exception:
-            oass
+            pass
         raise ZipExtractionError(f"Failed to extract {filepath.name}: {e}")
 
     # Remove ZIP file after successful extraction
@@ -966,7 +964,7 @@ def memory_download(memories: list[dict[str, str, str, str, str]]) -> None:
                         raise DownloadError(f"Failed to write file: {e}")
 
                     if not filepath.exists() or filepath.stat().st_size == 0:
-                        raise DownloadError(f"Downloaded file is empty or missing\n")
+                        raise DownloadError("Downloaded file is empty or missing\n")
 
 
                 # Process the downloaded file
