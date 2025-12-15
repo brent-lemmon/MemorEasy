@@ -34,6 +34,9 @@ class NetworkError(MemorEasyError):
 class ImageProcessingError(MemorEasyError):
     """Rased when image processing fails"""
     pass
+class VideoProcessingError(MemorEasyError):
+    """Raise when video processing fails"""
+    pass
 
 # =========================================================================== #
 
@@ -443,9 +446,7 @@ Args:
     png_path: Path to overlay PNG
 
 Returns:
-    FileNotFoundError:
-    ImageProcessingError:
-    ValueError:
+    Path to combined image (ends with "-combined.jpg")
 
 Raises:
     FileNotFoundError: If either image file does not exist
@@ -570,55 +571,142 @@ def merge_jpg_with_overlay(jpg_path: Path, png_path: Path) -> Path:
 
 # =========================================================================== #
 
-#Overlay PNG layer onto MP4 video
-def merge_mp4_with_overlay(mp4_path, png_path) -> Path:
+"""
+Overlay PNG layer onto MP4 video
 
-    ffmpeg_path = find_ffmpeg()
+Args:
+    mp4_path: Path to base MP4 video (must end with "-main.mp4")
+    png_path: Path to overlay PNG
 
-    combined_path = mp4_path.replace("-main.mp4", "-combined.mp4")
+Returns:
+    Path to combined video (ends with "-combined.mp4")
 
-    # Get mp4 dimensions
+Raises:
+    FileNotFoundError: If either image file does not exist
+    DependencyError: Of ffmpeg not found
+    VideoProcessingError: If any various parts of image processing fails
+    ValueError: If mp4_path does not end with "-main.mp4"
+"""
+def merge_mp4_with_overlay(mp4_path: Path, png_path: Path) -> Path:
+
+    # Validate inputs are Path objects
+    if isinstance(mp4_path, str):
+        mp4_path = Path(mp4_path)
+    if isinstance(png_path, str):
+        png_path = Path(png_path)
+
+    # Check files exist
+    if not mp4_path.exists():
+        raise FileNotFoundError(f"MP4 file not found: {mp4_path}")
+    if not png_path.exists():
+        raise FileNotFoundError(f"PNG overlay not found: {png_path}")
+
+    # Validate MP4 filename format
+    if not mp4_path.name.endswith("-main.mp4"):
+        raise ValueError(
+            f"MP4 filename must end with '-main.mp4', got: {mp4_path.name}"
+        )
+
+    combined_path = mp4_path.parent / mp4_path.name.replace("-main.mp4", "-combined.mp4")
+
+    # Check if combined file already exists
+    if combined_path.exists():
+        print(f"Combined video already exists: {combined_path.name}, skipping merge")
+        return combined_path
+
+    # Find ffmpeg dependency
     try:
-        video = VideoFileClip(mp4_path)
-        video_width, video_height = video.size
-        video.close()
-    except Exception as e:
-        print(f"Error reading video dimensions with moviepy: {e}")
-        return
+        ffmpeg_path = find_ffmpeg()
+    except DependencyError:
+        raise # Re-raise to be handled by caller
 
-    # Resize png file to mp4 dimensions
+    video = None
+    overlay = None
+    resized_png_path = None
+
     try:
-        overlay = Image.open(png_path)
-        overlay = overlay.resize((video_width, video_height), Image.LANCZOS)
-        overlay.save(png_path, "PNG")
+        # Get MP4 dimensions using moviepy
+
+        try:
+            video = VideoFileClip(mp4_path)
+            video_width, video_height = video.size
+
+            if video_width <= 0 or video_height <= 0:
+                raise VideoProcessingError(f"Invalid video dimensions: {video_width}x{video_height}")
+        except Exception as e:
+            raise VideoProcessingError(f"Failed to read video dimensions from {mp4_path.name}: {e}.")
+        finally:
+            if video:
+                try:
+                    video.close()
+                except Exception:
+                    pass
+
+
+        # Resize png file to mp4 dimensions
+        try:
+            overlay = Image.open(png_path)
+            overlay = overlay.resize((video_width, video_height), Image.LANCZOS)
+            overlay.save(png_path, "PNG")
+        except Exception as e:
+            raise VideoProcessingError(
+                f"Failed to resize PNG overlay from {original_size} to "
+                f"{video_width}x{video_height}: {e}"
+            )
+        finally:
+            if overlay:
+                try:
+                    overlay.close()
+                except Exception:
+                    pass
+
+
+        cmd = [
+            ffmpeg_path,
+            "-i", mp4_path,      # Input video
+            "-i", png_path,      # Input overlay
+            "-filter_complex", "[0:v][1:v]overlay=0:0",  # Overlay at position 0,0
+            "-codec:a", "copy",       # Copy audio without re-encoding
+            "-y",                     # Overwrite output file
+            str(combined_path)
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode != 0:
+                raise VideoProcessingError(f"FFmpeg failed for {mp4_path.name}: {result.stderr}")
+        except subprocess.TimeoutExpired:
+            raise VideoProcessingError(f"FFmpeg timed out processing {mp4_path.name} (exceeded 5 minutes)")
+        except Exception as e:
+            raise VideoProcessingError(f"FFmpeg error: {e}")
+
+        # Verify file was created
+        if not combined_path.exists():
+            raise VideoProcessingError("Combined video was not created")
+
+        # Verify output file not empty
+        if combined_path.stat().st_size == 0:
+            combined_path.unlink()
+            raise VideoProcessingError("Combined video is empty")
+
+        try:
+            os.remove(png_path)
+        except OSError as e:
+            print(f"Warning: Could not delete overlay PNG {png_path.name}: {e}")
+
+        return combined_path
+
+    except VideoProcessingError:
+        # Re-raise our custom errors
+        raise
     except Exception as e:
-        print(f"Error resizing PNG with Pillow: {e}")
-        return
-
-
-    cmd = [
-        ffmpeg_path,
-        "-i", mp4_path,      # Input video
-        "-i", png_path,      # Input overlay
-        "-filter_complex", "[0:v][1:v]overlay=0:0",  # Overlay at position 0,0
-        "-codec:a", "copy",       # Copy audio without re-encoding
-        "-y",                     # Overwrite output file
-        combined_path
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"FFmpeg error for {mp4_path}: {result.stderr}")
-        return None
-
-    os.remove(png_path)
-
-    return Path(combined_path)
+        # Catch any unexpected errors
+        raise VideoProcessingError(f"Unexpected error merging video with overlay: {e}")
 
 # =========================================================================== #
 
 # Extract files from a zip folder and place them into a new folder matching file naming convention
-def handle_zip(filepath, name, line) -> None:
+def handle_zip(filepath: Path, name: str, line: dict[str, str, str, str, str]) -> None:
 
     # Where our extracted images will reside
     new_folder = Path(f"./memories/{name}")
