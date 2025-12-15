@@ -37,6 +37,9 @@ class ImageProcessingError(MemorEasyError):
 class VideoProcessingError(MemorEasyError):
     """Raise when video processing fails"""
     pass
+class ZipExtractionError(MemorEasyError):
+    """Raised when ZIP extraction or processing fails"""
+    pass
 
 # =========================================================================== #
 
@@ -705,59 +708,162 @@ def merge_mp4_with_overlay(mp4_path: Path, png_path: Path) -> Path:
 
 # =========================================================================== #
 
-# Extract files from a zip folder and place them into a new folder matching file naming convention
-def handle_zip(filepath: Path, name: str, line: dict[str, str, str, str, str]) -> None:
+"""
+Extract files from a ZIP folder and process Snapchat memory files
 
-    # Where our extracted images will reside
+Args:
+    filepath: Path to ZIP file
+    name: Base name for files (datetime string without extension)
+    memory: Memory dictionary with keys: date, type, lat, lon, url
+
+Raises:
+    FileNotFoundError: If ZIP file doesn't exist
+    ZipExtractionError: If extraction or processing fails
+"""
+def handle_zip(filepath: Path, name: str, memory: dict[str, str, str, str, str]) -> None:
+
+    if not filepath.exists():
+        raise FileNotFoundError(f"ZIP file not found: {filepath}")
+
+
+    # Create folder path for extracted files
     new_folder = Path(f"./memories/{name}")
 
-    # Unpack then remove zip file
-    shutil.unpack_archive(filepath, new_folder)
-    os.remove(filepath)
+    if new_folder.exists():
+        print(f"Folder already exists: {new_folder.name}, skipping extraction")
 
-    have_mp4 = False
-    have_jpg = False
+    # Create folder
+    try:
+        new_folder.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise ZipExtractionError(f"Failed to create folder {new_folder}: {e}.")
 
-    # Go through each file in extracted folder, find and tag mp4/jpg files then the folder
-    for file in os.listdir(new_folder):
+    # Extract ZIP
+    try:
+        shutil.unpack_archive(filepath, new_folder)
+    except Exception as e:
+        # Cleanup and remove partial extraction if fail
+        try:
+            shutil.rmtree(new_folder)
+        except Exception:
+            oass
+        raise ZipExtractionError(f"Failed to extract {filepath.name}: {e}")
 
-        zip_file_path = os.path.join(new_folder)
+    # Remove ZIP file after successful extraction
+    try:
+        os.remove(filepath)
+    except OSError as e:
+        print(f"Warning: Could not delete ZIP file {filepath.name}: {e}")
 
-        internal_ext = ""
-        if file.endswith("-main.mp4"):
-            new_file = f"{name}-main.mp4"
-            internal_ext = ".mp4"
-            have_mp4 = True
 
-        elif file.endswith("-main.jpg"):
-            new_file = f"{name}-main.jpg"
-            internal_ext = ".jpg"
-            have_jpg = True
+    # Track what files we found
+    main_mp4 = None
+    main_jpg = None
+    overlay_png = None
 
-        elif file.endswith("-overlay.png"):
-            new_file = f"{name}-overlay.png"
+    # Processs extracted files
+    try:
+        files = list(new_folder.iterdir())
 
-        else:
-            new_file=file
+        if not files:
+            raise ZipExtractionError(f"ZIP file {filepath.name} was empty")
+        for file in files:
 
-        # rename zip files from their SID to date/time names
-        shutil.move(f"{new_folder}/{file}", f"{new_folder}/{new_file}")
+            old_name = file.name
+            new_name = None
 
-        # If we have a mp4/jpg, write metadata to it
-        if internal_ext != "":
-            write_exif(Path(f"{new_folder}/{name}-main{internal_ext}"), line["date"], line["lat"], line["lon"])
+            if old_name.endswith("-main.mp4"):
+                new_name = f"{name}-main.mp4"
+                main_mp4 = new_folder / new_name
+            elif old_name.endswith("-main.jpg"):
+                new_name = f"{name}-main.jpg"
+                main_jpg = new_folder / new_name
+            elif old_name.endswith("-overlay.png"):
+                new_name = f"{name}-overlay.png"
+                overlay_png = new_folder / new_name
+            else:
+                # Keep unknown files with original name
+                print(f"Unknown file in ZIP: {old_name}, keeping as-is")
+                continue
 
-    # Handles combining main layers with overlay
-    if have_mp4:
-        combined_path = merge_mp4_with_overlay(f"{new_folder}/{name}-main.mp4", f"{new_folder}/{name}-overlay.png")
-        write_exif(combined_path, line["date"], line["lat"], line["lon"])
+            # Rename file
+            if new_name:
+                try:
+                    new_path = new_folder / new_name
+                    file.rename(new_path)
+                except OSError as e:
+                    print(f"Warning: Could not rename {old_name} to {new_name}: {e}")
+                    continue
 
-    if have_jpg:
-        combined_path = merge_jpg_with_overlay(f"{new_folder}/{name}-main.jpg", f"{new_folder}/{name}-overlay.png")
-        write_exif(combined_path, line["date"], line["lat"], line["lon"])
+        # Verify we found expected files
+        if not main_mp4 and not main_jpg:
+            raise ZipExtractionError(
+                f"No main media file found in {filepath.name}. "
+                f"Exprected file ending with '-main.mp4' or '-main.jpg'"
+            )
+        if not overlay_png:
+            print(f"Warning: No overlay PNG found in {filepath.name}")
 
-    # Updates modified time of folder to internal file creation date
-    write_exif(new_folder, line["date"], line["lat"], line["lon"])
+        # Get Memory metadata values
+        date_str = memory["date"]
+        lat = memory["lat"]
+        lon = memory["lon"]
+
+        # Make sure valid metadata
+        if not date_str:
+            raise ValueError("Date string not found in Memory {filepath.name}.")
+        if not lat or not lon:
+            raise ValueError("GPS coordinates not found in Memory {filepath.name}.")
+
+        # Process MP4 if found
+        if main_mp4 and main_mp4.exists():
+            try:
+                # Tag original MP4
+                write_exif(main_mp4, date_str, lat, lon)
+
+                if overlay_png and overlay_png.exists():
+                    try:
+                        combined_path = merge_mp4_with_overlay(main_mp4, overlay_png)
+                        write_exif(combined_path, date_str, lat, lon)
+                    except (VideoProcessingError, DependencyError) as e:
+                        print(f"Warning: Failed to merge MP4 with overlay: {e}")
+                    except Exception as e:
+                        print(f"Warning: Unexpected error merging MP4: {e}")
+
+            except Exception as e:
+                print(f"Warning: Failed to process MP4: {e}")
+
+        # Process JPG if found
+        if main_jpg and main_jpg.exists():
+            try:
+                # Tag original JPG
+                write_exif(main_jpg, date_str, lat, lon)
+
+                if overlay_png and overlay_png.exists():
+                    try:
+                        combined_path = merge_jpg_with_overlay(main_jpg, overlay_png)
+                        write_exif(combined_path, date_str, lat, lon)
+                    except ImageProcessingError as e:
+                        print(f"Warning: Failed to merge JPG with overlay: {e}")
+                    except Exception as e:
+                        print(f"Warning: Unexpected error merging JPG: {e}")
+
+            except Exception as e:
+                print(f"Warning: Failed to process JPG: {e}")
+
+        # Set folder timestamp to match content
+        try: # not sure this is right
+            timestamp_date = date_str.replace(" UTC", "").strip()
+            set_file_timestamp(new_folder, timestamp_date)
+        except Exception as e:
+            print(f"Warning: Could not set folder timestamp: {e}")
+
+    except ZipExtractionError:
+        # Re-raise our custom errors
+        raise
+    except Exception as e:
+        # Catch unexpected errors
+        raise ZipExtractionError(f"Failed to process extracted files: {e}")
 
 # =========================================================================== #
 
