@@ -1,4 +1,5 @@
 from .media_processing import *
+from .exceptions import *
 from pathlib import Path
 from .metadata import *
 import requests
