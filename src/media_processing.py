@@ -226,18 +226,25 @@ def merge_mp4_with_overlay(mp4_path: Path, png_path: Path) -> Path:
 
         cmd = [
             ffmpeg_path,
+            "-hwaccel", "auto",  # Try hardware acceleration for HEVC support
             "-i", mp4_path,      # Input video
-
             "-i", png_path,      # Input overlay
             "-filter_complex", "[0:v][1:v]overlay=0:0",  # Overlay at position 0,0
-            "-codec:a", "copy",       # Copy audio without re-encoding
-            "-y",                     # Overwrite output file
+            "-c:v", "libx264",   # Use H.264 codec for output
+            "-codec:a", "copy",  # Copy audio without re-encoding
+            "-y",                # Overwrite output file
             str(combined_path)
         ]
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             if result.returncode != 0:
+                # Check if error is HEVC decoder issue
+                if "hevc" in result.stderr.lower() and "decoder" in result.stderr.lower():
+                    raise VideoProcessingError(
+                        f"Cannot merge overlay: HEVC decoder not available in FFmpeg. "
+                        f"Using unmerged video with EXIF metadata only."
+                    )
                 raise VideoProcessingError(f"FFmpeg failed for {mp4_path.name}: {result.stderr}")
         except subprocess.TimeoutExpired:
             raise VideoProcessingError(f"FFmpeg timed out processing {mp4_path.name} (exceeded 5 minutes)")

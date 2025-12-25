@@ -125,7 +125,13 @@ def handle_zip(filepath: Path, name: str, memory: dict[str, str, str, str, str])
                     try:
                         combined_path = merge_mp4_with_overlay(main_mp4, overlay_png)
                         write_exif(combined_path, date_str, lat, lon)
-                    except (VideoProcessingError, DependencyError) as e:
+                    except VideoProcessingError as e:
+                        # Check if it's a HEVC decoder issue
+                        if "hevc" in str(e).lower() and "decoder" in str(e).lower():
+                            print(f"Note: {e} Original video kept with EXIF metadata.")
+                        else:
+                            print(f"Warning: Failed to merge MP4 with overlay: {e}")
+                    except (DependencyError) as e:
                         print(f"Warning: Failed to merge MP4 with overlay: {e}")
                     except Exception as e:
                         print(f"Warning: Unexpected error merging MP4: {e}")
